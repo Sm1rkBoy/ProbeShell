@@ -1,0 +1,11 @@
+[Unit]
+Description=blackbox_exporter
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/blackbox/blackbox_exporter --web.listen-address=127.0.0.1:9115 --config.file=/usr/local/bin/blackbox/blackbox.yml
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

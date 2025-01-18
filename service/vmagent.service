@@ -1,0 +1,10 @@
+[Unit]
+Description=Vmagent
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/vmagent/vmagent -httpListenAddr='' -promscrape.config=/usr/local/bin/vmagent/prometheus.yml -remoteWrite.tmpDataPath=/usr/local/bin/vmagent -remoteWrite.url= 
+
+[Install]
+WantedBy=multi-user.target

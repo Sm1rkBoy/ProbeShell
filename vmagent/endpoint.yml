@@ -1,0 +1,72 @@
+- targets:
+    - "bj-ct-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "北京电信"
+- targets:
+    - "bj-cu-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "北京联通"
+- targets:
+    - "bj-cm-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "北京移动"
+- targets:
+    - "sh-ct-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "上海电信"
+- targets:
+    - "sh-cu-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "上海联通"
+- targets:
+    - "sh-cm-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "上海移动"
+- targets:
+    - "gd-ct-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "广东电信"
+- targets:
+    - "gd-cu-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "广东联通"
+- targets:
+    - "gd-cm-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "广东移动"
+- targets:
+    - "ah-ct-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "安徽电信"
+- targets:
+    - "ah-cu-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "安徽联通"
+- targets:
+    - "ah-cm-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "安徽移动"
+- targets:
+    - "cq-ct-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "重庆电信"
+- targets:
+    - "cq-cu-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "重庆联通"
+- targets:
+    - "cq-cm-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "重庆移动"
+- targets:
+    - "sn-ct-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "陕西电信"
+- targets:
+    - "sn-cu-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "陕西联通"
+- targets:
+    - "sn-cm-v4.ip.zstaticcdn.com:80"
+  labels:
+    endpoint: "陕西移动"

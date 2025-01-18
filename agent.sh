@@ -1,0 +1,150 @@
+#!/bin/bash
+
+clear
+
+echo "请选择操作: "
+echo "1) 安装 全部组件"
+echo "2) 卸载 全部组件"
+read -n 1 -p "输入你的选择 (1 或 2): " choice
+
+case $choice in
+1)
+    # 提示用户输入实例名称
+    read -p "请输入实例名称(例如:GreenCloud.JP.6666): " instance_name
+
+    echo "下载安装 blackbox中..."
+    wget https://github.com/prometheus/blackbox_exporter/releases/download/v0.25.0/blackbox_exporter-0.25.0.linux-amd64.tar.gz
+    tar -zxvf blackbox_exporter-0.25.0.linux-amd64.tar.gz
+    rm blackbox_exporter-0.25.0.linux-amd64.tar.gz
+    mv blackbox_exporter-0.25.0.linux-amd64/ /usr/local/bin/blackbox
+
+    echo "下载安装 node_exporter 中..."
+    wget https://github.com/prometheus/node_exporter/releases/download/v1.8.2/node_exporter-1.8.2.linux-amd64.tar.gz
+    tar -zxvf node_exporter-1.8.2.linux-amd64.tar.gz
+    rm node_exporter-1.8.2.linux-amd64.tar.gz
+    mv node_exporter-1.8.2.linux-amd64/ /usr/local/bin/node
+
+    echo "下载安装 vmagent 中..."
+    wget https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v1.109.0/vmutils-linux-amd64-v1.109.0.tar.gz
+    tar -zxvf vmutils-linux-amd64-v1.109.0.tar.gz
+    rm -rf vmalert-prod  vmalert-tool-prod  vmauth-prod  vmbackup-prod  vmctl-prod  vmrestore-prod  vmutils-linux-amd64-v1.109.0.tar.gz
+    mkdir -p /usr/local/bin/vmagent
+    mv vmagent-prod /usr/local/bin/vmagent/vmagent
+    chmod +x /usr/local/bin/vmagent/vmagent
+    chown -v root:root /usr/local/bin/vmagent/vmagent
+
+    # ---------------------------------------------------------------------------------------------------
+    # 配置blackbox系统服务
+    wget -O /etc/systemd/system/blackbox.service https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/service/blackbox.service
+
+    # 配置node_exporter系统服务
+    wget -O /etc/systemd/system/node_exporter.service https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/service/node_exporter.service
+
+    # 配置vmagent系统服务
+    wget -O /etc/systemd/system/vmagent.service https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/service/vmagent.service
+
+    # 提示用户输入主域名
+    echo "VictoriaMetrics写入地址一般是<ip>:8428,如果有反代输入域名即可,写入的api会自动拼接"
+    read -p "请输入VictoriaMetrics写入地址: " main_domain
+
+    # 检查输入是否为空
+    if [ -z "$main_domain" ]; then
+      echo "错误：主域名不能为空。"
+      exit 1
+    fi
+
+    # 拼接 /api/v1/write 到主域名
+    remote_write_url="${main_domain}/api/v1/write"
+
+    # 替换 vmagent.service 文件中的 remoteWrite URL
+    sudo sed -i "s|-remoteWrite.url=.*|-remoteWrite.url=${remote_write_url}|g" /etc/systemd/system/vmagent.service
+
+    # ---------------------------------------------------------------------------------------------------
+    # 配置blackbox.yml
+    wget -O /usr/local/bin/blackbox/blackbox.yml https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/blackbox/blackbox.yml
+
+    # 配置prometheus.yml
+    wget -O /usr/local/bin/vmagent/prometheus.yml https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/vmagent/prometheus.yml
+
+    # 提示用户输入 instance_name
+    read -p "请输入VPS名(比如GreenCloud.JP.6666): " instance_name
+
+    # 检查用户是否输入了值
+    if [ -z "$instance_name" ]; then
+    echo "错误:instance_name 不能为空！"
+    exit 1
+    fi
+
+    # 配置文件路径
+    config_file="/usr/local/bin/vmagent/prometheus.yml"
+
+    # 检查配置文件是否存在
+    if [ ! -f "$config_file" ]; then
+    echo "错误:配置文件 $config_file 不存在！"
+    exit 1
+    fi
+
+    # 替换 ${instance_name} 为用户输入的值
+    sed -i "s/\${instance_name}/$instance_name/g" "$config_file"
+
+    # 检查替换是否成功
+    if grep -q "$instance_name" "$config_file"; then
+    echo "成功：${instance_name} 已替换为 $instance_name 在配置文件 $config_file 中。"
+    else
+    echo "错误：替换失败，请检查配置文件。"
+    exit 1
+    fi
+
+    # 配置endpoint.yml
+    wget -O /usr/local/bin/vmagent/endpoint.yml https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/vmagent/endpoint.yml
+    # ---------------------------------------------------------------------------------------------------
+
+    chmod 644 /etc/systemd/system/blackbox.service
+    chmod 644 /etc/systemd/system/node_exporter.service
+    chmod 644 /etc/systemd/system/vmagent.service
+
+    systemctl daemon-reload
+
+    systemctl start blackbox
+    systemctl start node_exporter
+    systemctl start vmagent
+
+    systemctl enable blackbox
+    systemctl enable node_exporter
+    systemctl enable vmagent
+
+    systemctl status blackbox
+    systemctl status node_exporter
+    systemctl status vmagent
+    ;;
+2)
+    echo "停止 blackbox_exporter 服务..."
+    systemctl stop blackbox
+    systemctl stop node_exporter
+    systemctl stop vmagent
+
+    echo "禁用开机自启..."
+    systemctl disable blackbox
+    systemctl disable node_exporter
+    systemctl disable vmagent
+
+    echo "删除服务文件..."
+    rm -f /etc/systemd/system/blackbox.service
+    rm -f /etc/systemd/system/node_exporter.service
+    rm -f /etc/systemd/system/vmagent.service
+
+    echo "重载服务配置..."
+    systemctl daemon-reload
+
+    echo "删除 blackbox_exporter 文件..."
+    rm -rf /usr/local/bin/blackbox
+    rm -rf /usr/local/bin/node
+    rm -rf /usr/local/bin/vmagent
+
+    echo "清除日志"
+    journalctl --vacuum-time=1s
+    ;;
+*)
+    echo "无效选项，请选择 1 或 2."
+    ;;
+esac
