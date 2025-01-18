@@ -9,9 +9,6 @@ read -n 1 -p "输入你的选择 (1 或 2): " choice
 
 case $choice in
 1)
-    # 提示用户输入实例名称
-    read -p "请输入实例名称(例如:GreenCloud.JP.6666): " instance_name
-
     echo "下载安装 blackbox中..."
     wget https://github.com/prometheus/blackbox_exporter/releases/download/v0.25.0/blackbox_exporter-0.25.0.linux-amd64.tar.gz
     tar -zxvf blackbox_exporter-0.25.0.linux-amd64.tar.gz
