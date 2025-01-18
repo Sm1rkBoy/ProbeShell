@@ -1,0 +1,10 @@
+[Unit]
+Description=node_exporter
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/node/node_exporter --web.listen-address=127.0.0.1:9100 --collector.cpu.info
+
+[Install]
+WantedBy=multi-user.target
