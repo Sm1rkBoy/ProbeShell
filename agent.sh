@@ -9,22 +9,38 @@ read -n 1 -p "输入你的选择 (1 或 2): " choice
 
 case $choice in
 1)
+    # 获取系统架构
+    ARCH=$(uname -m)
+
+    # 根据架构设置下载包的版本
+    if [ "$ARCH" == "x86_64" ]; then
+        ARCH_SUFFIX="linux-amd64"
+    elif [ "$ARCH" == "aarch64" ]; then
+        ARCH_SUFFIX="linux-arm64"
+    else
+        echo "不支持的架构: $ARCH"
+        exit 1
+    fi
     echo "下载安装 blackbox中..."
-    wget https://github.com/prometheus/blackbox_exporter/releases/download/v0.25.0/blackbox_exporter-0.25.0.linux-amd64.tar.gz
-    tar -zxvf blackbox_exporter-0.25.0.linux-amd64.tar.gz
-    rm blackbox_exporter-0.25.0.linux-amd64.tar.gz
-    mv blackbox_exporter-0.25.0.linux-amd64/ /usr/local/bin/blackbox
+    BLACKBOX_VERSION="0.25.0"
+    wget https://github.com/prometheus/blackbox_exporter/releases/download/v${BLACKBOX_VERSION}/blackbox_exporter-${BLACKBOX_VERSION}.${ARCH_SUFFIX}.tar.gz
+    tar -zxvf blackbox_exporter-${BLACKBOX_VERSION}.${ARCH_SUFFIX}.tar.gz
+    rm blackbox_exporter-${BLACKBOX_VERSION}.${ARCH_SUFFIX}.tar.gz
+    mv blackbox_exporter-${BLACKBOX_VERSION}.${ARCH_SUFFIX}/ /usr/local/bin/blackbox
 
     echo "下载安装 node_exporter 中..."
-    wget https://github.com/prometheus/node_exporter/releases/download/v1.8.2/node_exporter-1.8.2.linux-amd64.tar.gz
-    tar -zxvf node_exporter-1.8.2.linux-amd64.tar.gz
-    rm node_exporter-1.8.2.linux-amd64.tar.gz
-    mv node_exporter-1.8.2.linux-amd64/ /usr/local/bin/node
+    NODE_VERSION="1.8.2"
+    wget https://github.com/prometheus/node_exporter/releases/download/v${NODE_VERSION}/node_exporter-${NODE_VERSION}.${ARCH_SUFFIX}.tar.gz
+    tar -zxvf node_exporter-${NODE_VERSION}.${ARCH_SUFFIX}.tar.gz
+    rm node_exporter-${NODE_VERSION}.${ARCH_SUFFIX}.tar.gz
+    mv node_exporter-${NODE_VERSION}.${ARCH_SUFFIX}/ /usr/local/bin/node
+
 
     echo "下载安装 vmagent 中..."
-    wget https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v1.109.0/vmutils-linux-amd64-v1.109.0.tar.gz
-    tar -zxvf vmutils-linux-amd64-v1.109.0.tar.gz
-    rm -rf vmalert-prod  vmalert-tool-prod  vmauth-prod  vmbackup-prod  vmctl-prod  vmrestore-prod  vmutils-linux-amd64-v1.109.0.tar.gz
+    VMAGENT_VERSION="1.109.0"
+    wget https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v${VMAGENT_VERSION}/vmutils-${ARCH_SUFFIX}-v${VMAGENT_VERSION}.tar.gz
+    tar -zxvf vmutils-${ARCH_SUFFIX}-v${VMAGENT_VERSION}.tar.gz
+    rm -rf vmalert-prod vmalert-tool-prod vmauth-prod vmbackup-prod vmctl-prod vmrestore-prod vmutils-${ARCH_SUFFIX}-v${VMAGENT_VERSION}.tar.gz
     mkdir -p /usr/local/bin/vmagent
     mv vmagent-prod /usr/local/bin/vmagent/vmagent
     chmod +x /usr/local/bin/vmagent/vmagent
