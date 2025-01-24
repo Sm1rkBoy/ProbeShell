@@ -9,6 +9,7 @@ read -n 1 -p "输入你的选择 (1 或 2): " choice
 
 case $choice in
 1)
+    echo
     # 获取系统架构
     ARCH=$(uname -m)
 
@@ -131,6 +132,7 @@ case $choice in
     systemctl status vmagent
     ;;
 2)
+    echo
     echo "停止 blackbox_exporter 服务..."
     systemctl stop blackbox
     systemctl stop node_exporter
@@ -154,8 +156,26 @@ case $choice in
     rm -rf /usr/local/bin/node
     rm -rf /usr/local/bin/vmagent
 
-    echo "清除日志"
-    journalctl --vacuum-time=1s
+    # 提示用户输入，默认值为n
+    read -p "是否需要删除系统内生成时间大于1s的日志(谨慎操作!)[y/N]: " delete_log
+
+    # 将用户输入转换为小写，以便处理大小写不敏感的情况
+    delete_log=${delete_log,,}
+
+    # 提示用户输入，设置默认值为n
+    read -e -p "是否需要删除系统内生成时间大于1s的日志(谨慎操作!)[y/N]: " -i "n" delete_log
+
+    # 将用户输入转换为小写，以便处理大小写不敏感的情况
+    delete_log=${delete_log,,}
+
+    # 判断用户输入
+    if [[ "$delete_log" == "y" || "$delete_log" == "yes" ]]; then
+        echo "正在删除系统内生成时间大于1s的日志..."
+        journalctl --vacuum-time=1s
+        echo "日志删除完成。"
+    else
+        echo "未删除日志。"
+    fi
     ;;
 *)
     echo "无效选项，请选择 1 或 2."
