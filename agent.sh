@@ -60,11 +60,14 @@ case $choice in
     # 提示用户输入主域名
     echo "VictoriaMetrics写入地址一般是<ip>:8428,如果有反代输入域名即可,写入的api会自动拼接"
     read -p "请输入VictoriaMetrics写入地址: " main_domain
+    read -p "请输入VPS名(比如GreenCloud.JP.6666): " instance_name
+    read -p "请输入 VictoriaMetrics 的用户名: " VM_USERNAME
+    read -sp "请输入 VictoriaMetrics 的密码: " VM_PASSWORD
 
     # 检查输入是否为空
-    if [ -z "$main_domain" ]; then
-      echo "错误：主域名不能为空。"
-      exit 1
+    if [[ -z "$VM_USERNAME" || -z "$VM_PASSWORD" || -z "$main_domain" ]]; then
+        echo "错误：域名、用户名和密码不能为空！"
+        exit 1
     fi
 
     # 拼接 /api/v1/write 到主域名
@@ -72,6 +75,7 @@ case $choice in
 
     # 替换 vmagent.service 文件中的 remoteWrite URL
     sudo sed -i "s|-remoteWrite.url=.*|-remoteWrite.url=${remote_write_url}|g" /etc/systemd/system/vmagent.service
+    sudo sed -i -e "s/-remoteWrite.basicAuth.username=VM_USERNAME/-remoteWrite.basicAuth.username=${VM_USERNAME}/g" -e "s/-remoteWrite.basicAuth.password=VM_PASSWORD/-remoteWrite.basicAuth.password=${VM_PASSWORD}/g" /etc/systemd/system/vmagent.service
 
     # ---------------------------------------------------------------------------------------------------
     # 配置blackbox.yml
@@ -79,9 +83,6 @@ case $choice in
 
     # 配置prometheus.yml
     wget -O /usr/local/bin/vmagent/prometheus.yml https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/vmagent/prometheus.yml
-
-    # 提示用户输入 instance_name
-    read -p "请输入VPS名(比如GreenCloud.JP.6666): " instance_name
 
     # 检查用户是否输入了值
     if [ -z "$instance_name" ]; then

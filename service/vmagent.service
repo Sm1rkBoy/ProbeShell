@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/vmagent/vmagent -httpListenAddr='' -promscrape.config=/usr/local/bin/vmagent/prometheus.yml -remoteWrite.tmpDataPath=/usr/local/bin/vmagent -remoteWrite.url= 
+ExecStart=/usr/local/bin/vmagent/vmagent -httpListenAddr=''  -promscrape.config=/usr/local/bin/vmagent/prometheus.yml  -remoteWrite.tmpDataPath=/usr/local/bin/vmagent  -remoteWrite.basicAuth.username=VM_USERNAME -remoteWrite.basicAuth.password=VM_PASSWORD  -remoteWrite.url=
 
 [Install]
 WantedBy=multi-user.target
