@@ -1,0 +1,51 @@
+server:
+    http_listen_port: 0
+    grpc_listen_port: 0
+
+clients:
+    - url:
+      basic_auth:
+          username:
+          password:
+
+positions:
+    filename: /usr/local/bin/promtail/positions.yaml
+
+scrape_configs:
+    - job_name: 'System'
+      static_configs:
+          - targets: ['localhost']
+            labels:
+                instance: ''
+                job: 'syslog'
+                __path__: /var/log/syslog
+
+          - targets: ['localhost']
+            labels:
+                instance: ''
+                job: 'auth'
+                __path__: /var/log/auth.log
+
+          - targets: ['localhost']
+            labels:
+                instance: ''
+                job: 'kern'
+                __path__: /var/log/kern.log
+
+          - targets: ['localhost']
+            labels:
+                instance: ''
+                job: 'cron'
+                __path__: /var/log/cron.log
+
+          - targets: ['localhost']
+            labels:
+                instance: ''
+                job: 'user'
+                __path__: /var/log/user.log
+
+          - targets: ['localhost']
+            labels:
+                instance: ''
+                job: 'fail2ban'
+                __path__: /var/log/fail2ban.log
