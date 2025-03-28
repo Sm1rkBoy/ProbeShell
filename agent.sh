@@ -1,16 +1,87 @@
 #!/bin/bash
 
-clear
+# 默认参数
+INSTALL=false
+UNINSTALL=false
+MAIN_DOMAIN=""
+LOKI_DOMAIN=""
+INSTANCE_NAME=""
+VM_USERNAME=""
+VM_PASSWORD=""
+DELETE_LOGS="n"
 
-echo "请选择操作: "
-echo "1) 安装 全部组件"
-echo "2) 卸载 全部组件"
-read -n 1 -p "输入你的选择 (1 或 2): " choice
+# 读取参数
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --install)
+            INSTALL=true
+            shift
+            ;;
+        --uninstall)
+            UNINSTALL=true
+            shift
+            ;;
+        --victoria|--vm)
+            MAIN_DOMAIN="$2"
+            shift 2
+            ;;
+        --loki)
+            LOKI_DOMAIN="$2"
+            shift 2
+            ;;
+        --name|--instance)
+            INSTANCE_NAME="$2"
+            shift 2
+            ;;
+        --vm-user|--username)
+            VM_USERNAME="$2"
+            shift 2
+            ;;
+        --vm-pass|--password)
+            VM_PASSWORD="$2"
+            shift 2
+            ;;
+        --delete-logs)
+            DELETE_LOGS="y"
+            shift
+            ;;
+        --help)
+            echo "Usage: $0 [OPTIONS]"
+            echo "Options:"
+            echo "  --install               安装所有组件"
+            echo "  --uninstall             卸载所有组件"
+            echo "  --victoria, --vm        VictoriaMetrics写入地址"
+            echo "  --loki                  Loki写入地址"
+            echo "  --name, --instance      VPS名称"
+            echo "  --vm-user, --username   VictoriaMetrics用户名"
+            echo "  --vm-pass, --password   VictoriaMetrics密码"
+            echo "  --delete-logs           卸载时删除日志(默认不删除)"
+            exit 0
+            ;;
+        *)
+            echo "未知参数: $1"
+            exit 1
+            ;;
+    esac
+done
 
-case $choice in
-1)
+# 菜单
+if ! $INSTALL && ! $UNINSTALL; then
+    clear
+    echo "请选择操作: "
+    echo "1) 安装 全部组件"
+    echo "2) 卸载 全部组件"
+    read -n 1 -p "输入你的选择 (1 或 2): " choice
     echo
 
+    case $choice in
+        1) INSTALL=true ;;
+        2) UNINSTALL=true ;;
+        *) echo "无效选项，请选择 1 或 2."; exit 1 ;;
+    esac
+fi
+
+install_components() {
     # 安装依赖
     apt install unzip ntpdate -y
     timedatectl set-timezone Asia/Shanghai
@@ -20,8 +91,6 @@ case $choice in
 
     # 获取系统架构
     ARCH=$(uname -m)
-
-    # 下载二进制文件
     if [ "$ARCH" == "x86_64" ]; then
         ARCH_SUFFIX="linux-amd64"
     elif [ "$ARCH" == "aarch64" ]; then
@@ -31,6 +100,7 @@ case $choice in
         exit 1
     fi
 
+    # 下载安装 blackbox
     echo "下载安装 blackbox中..."
     BLACKBOX_VERSION="0.25.0"
     wget https://github.com/prometheus/blackbox_exporter/releases/download/v${BLACKBOX_VERSION}/blackbox_exporter-${BLACKBOX_VERSION}.${ARCH_SUFFIX}.tar.gz
@@ -38,6 +108,7 @@ case $choice in
     rm blackbox_exporter-${BLACKBOX_VERSION}.${ARCH_SUFFIX}.tar.gz
     mv blackbox_exporter-${BLACKBOX_VERSION}.${ARCH_SUFFIX}/ /usr/local/bin/blackbox
 
+    # 下载安装 node_exporter
     echo "下载安装 node_exporter 中..."
     NODE_VERSION="1.8.2"
     wget https://github.com/prometheus/node_exporter/releases/download/v${NODE_VERSION}/node_exporter-${NODE_VERSION}.${ARCH_SUFFIX}.tar.gz
@@ -45,6 +116,7 @@ case $choice in
     rm node_exporter-${NODE_VERSION}.${ARCH_SUFFIX}.tar.gz
     mv node_exporter-${NODE_VERSION}.${ARCH_SUFFIX}/ /usr/local/bin/node
 
+    # 下载安装 vmagent
     echo "下载安装 vmagent 中..."
     VMAGENT_VERSION="1.109.0"
     wget https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v${VMAGENT_VERSION}/vmutils-${ARCH_SUFFIX}-v${VMAGENT_VERSION}.tar.gz
@@ -55,6 +127,7 @@ case $choice in
     chmod +x /usr/local/bin/vmagent/vmagent
     chown -v root:root /usr/local/bin/vmagent/vmagent
 
+    # 下载安装 promtail
     echo "下载安装 promtail 中..."
     PROMTAIL_VERSION="3.4.2"
     wget https://github.com/grafana/loki/releases/download/v${PROMTAIL_VERSION}/promtail-${ARCH_SUFFIX}.zip
@@ -65,64 +138,59 @@ case $choice in
     chmod +x /usr/local/bin/promtail/promtail
     chown -v root:root /usr/local/bin/promtail/promtail
 
-    # ---------------------------------------------------------------------------------------------------
-    # 配置blackbox系统服务
+    # 下载服务配置文件
     wget -O /etc/systemd/system/blackbox.service https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/service/blackbox.service
-
-    # 配置node_exporter系统服务
     wget -O /etc/systemd/system/node_exporter.service https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/service/node_exporter.service
-
-    # 配置vmagent系统服务
     wget -O /etc/systemd/system/vmagent.service https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/service/vmagent.service
-
-    # 配置promtail系统服务
     wget -O /etc/systemd/system/promtail.service https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/service/promtail.service
 
-    # 提示用户输入主域名
-    echo "VictoriaMetrics写入地址一般是<ip>:8428,如果有反代输入域名即可,写入的api会自动拼接"
-    read -p "请输入 VictoriaMetrics 写入地址: " main_domain
-    read -p "请输入 Loki 写入地址: " loki_domain
-    read -p "请输入VPS名(比如GreenCloud.JP.6666): " instance_name
-    read -p "请输入 VictoriaMetrics 的用户名: " VM_USERNAME
-    read -sp "请输入 VictoriaMetrics 的密码: " VM_PASSWORD
+    # 如果没有通过命令行获取参数，则交互式获取
+    if [ -z "$MAIN_DOMAIN" ]; then
+        echo "VictoriaMetrics写入地址一般是<ip>:8428,如果有反代输入域名即可,写入的api会自动拼接"
+        read -p "请输入 VictoriaMetrics 写入地址: " MAIN_DOMAIN
+    fi
+    if [ -z "$LOKI_DOMAIN" ]; then
+        read -p "请输入 Loki 写入地址: " LOKI_DOMAIN
+    fi
+    if [ -z "$INSTANCE_NAME" ]; then
+        read -p "请输入VPS名(比如GreenCloud.JP.6666): " INSTANCE_NAME
+    fi
+    if [ -z "$VM_USERNAME" ]; then
+        read -p "请输入 VictoriaMetrics 的用户名: " VM_USERNAME
+    fi
+    if [ -z "$VM_PASSWORD" ]; then
+        read -sp "请输入 VictoriaMetrics 的密码: " VM_PASSWORD
+        echo
+    fi
 
-    # 检查输入是否为空
-    if [[ -z "$VM_USERNAME" || -z "$VM_PASSWORD" || -z "$main_domain" ]]; then
+    # 检查必填参数
+    if [[ -z "$MAIN_DOMAIN" || -z "$VM_USERNAME" || -z "$VM_PASSWORD" ]]; then
         echo "错误：域名、用户名和密码不能为空！"
         exit 1
     fi
 
     # 拼接 VictoriaMetrics /api/v1/write 到主域名
-    remote_write_url="${main_domain}/api/v1/write"
+    remote_write_url="${MAIN_DOMAIN}/api/v1/write"
 
-    # 替换 vmagent.service 文件中的 remoteWrite URL
-    sudo sed -i "s|-remoteWrite.url=.*|-remoteWrite.url=${remote_write_url}|g" /etc/systemd/system/vmagent.service
-    sudo sed -i -e "s/-remoteWrite.basicAuth.username=VM_USERNAME/-remoteWrite.basicAuth.username=${VM_USERNAME}/g" -e "s/-remoteWrite.basicAuth.password=VM_PASSWORD/-remoteWrite.basicAuth.password=${VM_PASSWORD}/g" /etc/systemd/system/vmagent.service
+    # 替换 vmagent.service 文件中的配置
+    sed -i "s|-remoteWrite.url=.*|-remoteWrite.url=${remote_write_url}|g" /etc/systemd/system/vmagent.service
+    sed -i -e "s/-remoteWrite.basicAuth.username=VM_USERNAME/-remoteWrite.basicAuth.username=${VM_USERNAME}/g" -e "s/-remoteWrite.basicAuth.password=VM_PASSWORD/-remoteWrite.basicAuth.password=${VM_PASSWORD}/g" /etc/systemd/system/vmagent.service
 
-    # ---------------------------------------------------------------------------------------------------
-    # 配置blackbox.yml
+    # 下载配置文件
     wget -O /usr/local/bin/blackbox/blackbox.yml https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/blackbox/blackbox.yml
-
-    # 配置prometheus.yml
     wget -O /usr/local/bin/vmagent/prometheus.yml https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/vmagent/prometheus.yml
-
-    # 配置promtail.yml
     wget -O /usr/local/bin/promtail/promtail.yml https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/promtail/promtail.yml
 
     # 检查用户是否输入了值
-    if [ -z "$instance_name" ]; then
+    if [ -z "$INSTANCE_NAME" ]; then
         echo "错误:instance_name 不能为空！"
         exit 1
     fi
 
     # 配置 Prometheus 文件路径
     config_file="/usr/local/bin/vmagent/prometheus.yml"
-
-    # 配置 Loki 文件路径
     promtail_file="/usr/local/bin/promtail/promtail.yml"
-
-    # 拼接 Loki /loki/api/v1/push 到主域名
-    loki_push_url="${loki_domain}/loki/api/v1/push"
+    loki_push_url="${LOKI_DOMAIN}/loki/api/v1/push"
 
     # 检查配置文件是否存在
     if [ ! -f "$config_file" ]; then
@@ -131,32 +199,31 @@ case $choice in
     fi
 
     # 替换值
-    sed -i "s/\${instance_name}/$instance_name/g" "$config_file"
-    sed -i "s|instance: ''|instance: '$instance_name'|g" "$promtail_file"
-    sed -i "s|url:|url: $loki_push_url|" "$promtail_file"
-    sed -i "s|username:|username: $VM_USERNAME|" "$promtail_file"
-    sed -i "s|password:|password: $VM_PASSWORD|" "$promtail_file"
-
+    sed -i "s/\${instance_name}/${INSTANCE_NAME}/g" "$config_file"
+    sed -i "s|instance: ''|instance: '${INSTANCE_NAME}'|g" "$promtail_file"
+    sed -i "s|url:|url: ${loki_push_url}|" "$promtail_file"
+    sed -i "s|username:|username: ${VM_USERNAME}|" "$promtail_file"
+    sed -i "s|password:|password: ${VM_PASSWORD}|" "$promtail_file"
 
     # 检查替换是否成功
-    if grep -q "$instance_name" "$config_file"; then
-        echo "成功：${instance_name} 已替换为 $instance_name 在配置文件 $config_file 中。"
+    if grep -q "$INSTANCE_NAME" "$config_file"; then
+        echo "成功：${INSTANCE_NAME} 已替换为 $INSTANCE_NAME 在配置文件 $config_file 中。"
     else
         echo "错误：替换失败，请检查配置文件。"
         exit 1
     fi
 
-    # 配置endpoint.yml
+    # 下载endpoint.yml
     wget -O /usr/local/bin/vmagent/endpoint.yml https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/vmagent/endpoint.yml
-    # ---------------------------------------------------------------------------------------------------
 
+    # 设置权限
     chmod 644 /etc/systemd/system/blackbox.service
     chmod 644 /etc/systemd/system/node_exporter.service
     chmod 644 /etc/systemd/system/vmagent.service
     chmod 644 /etc/systemd/system/promtail.service
 
+    # 启动服务
     systemctl daemon-reload
-
     systemctl start blackbox
     systemctl start node_exporter
     systemctl start vmagent
@@ -167,13 +234,14 @@ case $choice in
     systemctl enable vmagent
     systemctl enable promtail
 
-    systemctl status blackbox
-    systemctl status node_exporter
-    systemctl status vmagent
-    systemctl status promtail
-    ;;
-2)
-    echo
+    echo "安装完成！服务状态："
+    systemctl status blackbox --no-pager
+    systemctl status node_exporter --no-pager
+    systemctl status vmagent --no-pager
+    systemctl status promtail --no-pager
+}
+
+uninstall_components() {
     echo "停止所有服务..."
     systemctl stop blackbox
     systemctl stop node_exporter
@@ -195,29 +263,27 @@ case $choice in
     echo "重载服务配置..."
     systemctl daemon-reload
 
-    echo "删除 blackbox_exporter 文件..."
+    echo "删除安装文件..."
     rm -rf /usr/local/bin/blackbox
     rm -rf /usr/local/bin/node
     rm -rf /usr/local/bin/vmagent
     rm -rf /usr/local/bin/promtail
 
-    # 提示用户输入，设置默认值为n
-    read -e -p "是否需要删除系统内生成时间大于1s的日志(谨慎操作!)[y/N]: " delete_log
-    delete_log=${delete_log:-n}  # 如果用户未输入，则赋值为 n
-
-    # 将用户输入转换为小写，以便处理大小写不敏感的情况
-    delete_log=${delete_log,,}
-
-    # 判断用户输入
-    if [[ "$delete_log" == "y" ]]; then
+    # 处理日志删除
+    if [ "$DELETE_LOGS" == "y" ]; then
         echo "正在删除系统内生成时间大于1s的日志..."
         journalctl --vacuum-time=1s
         echo "日志删除完成。"
     else
         echo "未删除日志。"
     fi
-    ;;
-*)
-    echo "无效选项，请选择 1 或 2."
-    ;;
-esac
+
+    echo "卸载完成！"
+}
+
+# 执行操作
+if $INSTALL; then
+    install_components
+elif $UNINSTALL; then
+    uninstall_components
+fi
