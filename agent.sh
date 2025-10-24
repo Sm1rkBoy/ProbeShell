@@ -83,7 +83,7 @@ fi
 
 install_components() {
     # 安装依赖
-    apt install unzip ntpdate -y
+    apt install unzip ntpsec-ntpdate -y
     timedatectl set-timezone Asia/Shanghai
     ntpdate ntp.aliyun.com
     CRON_JOB="0 3 * * * /usr/sbin/ntpdate ntp.aliyun.com > /dev/null 2>&1"
@@ -102,7 +102,7 @@ install_components() {
 
     # 下载安装 blackbox
     echo "下载安装 blackbox中..."
-    BLACKBOX_VERSION="0.25.0"
+    BLACKBOX_VERSION="0.27.0"
     wget https://github.com/prometheus/blackbox_exporter/releases/download/v${BLACKBOX_VERSION}/blackbox_exporter-${BLACKBOX_VERSION}.${ARCH_SUFFIX}.tar.gz
     tar -zxvf blackbox_exporter-${BLACKBOX_VERSION}.${ARCH_SUFFIX}.tar.gz
     rm blackbox_exporter-${BLACKBOX_VERSION}.${ARCH_SUFFIX}.tar.gz
@@ -110,7 +110,7 @@ install_components() {
 
     # 下载安装 node_exporter
     echo "下载安装 node_exporter 中..."
-    NODE_VERSION="1.8.2"
+    NODE_VERSION="1.9.1"
     wget https://github.com/prometheus/node_exporter/releases/download/v${NODE_VERSION}/node_exporter-${NODE_VERSION}.${ARCH_SUFFIX}.tar.gz
     tar -zxvf node_exporter-${NODE_VERSION}.${ARCH_SUFFIX}.tar.gz
     rm node_exporter-${NODE_VERSION}.${ARCH_SUFFIX}.tar.gz
@@ -118,7 +118,7 @@ install_components() {
 
     # 下载安装 vmagent
     echo "下载安装 vmagent 中..."
-    VMAGENT_VERSION="1.109.0"
+    VMAGENT_VERSION="1.128.0"
     wget https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v${VMAGENT_VERSION}/vmutils-${ARCH_SUFFIX}-v${VMAGENT_VERSION}.tar.gz
     tar -zxvf vmutils-${ARCH_SUFFIX}-v${VMAGENT_VERSION}.tar.gz
     rm -rf vmalert-prod vmalert-tool-prod vmauth-prod vmbackup-prod vmctl-prod vmrestore-prod vmutils-${ARCH_SUFFIX}-v${VMAGENT_VERSION}.tar.gz
@@ -129,7 +129,7 @@ install_components() {
 
     # 下载安装 promtail
     echo "下载安装 promtail 中..."
-    PROMTAIL_VERSION="3.4.2"
+    PROMTAIL_VERSION="3.5.7"
     wget https://github.com/grafana/loki/releases/download/v${PROMTAIL_VERSION}/promtail-${ARCH_SUFFIX}.zip
     mkdir -p /usr/local/bin/promtail
     unzip promtail-${ARCH_SUFFIX}.zip
