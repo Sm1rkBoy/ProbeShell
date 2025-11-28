@@ -413,14 +413,8 @@ install_vmagent() {
     # 替换配置
     sed -i "s|-remoteWrite.url=.*|-remoteWrite.url=${remote_write_url}|g" /etc/systemd/system/vmagent.service
     sed -i -e "s/-remoteWrite.basicAuth.username=VM_USERNAME/-remoteWrite.basicAuth.username=${VM_USERNAME}/g" -e "s/-remoteWrite.basicAuth.password=VM_PASSWORD/-remoteWrite.basicAuth.password=${VM_PASSWORD}/g" /etc/systemd/system/vmagent.service
+    sed -i "s/-remoteWrite.maxDiskUsagePerURL=CACHE_SIZE/-remoteWrite.maxDiskUsagePerURL=${CACHE_SIZE}/g" /etc/systemd/system/vmagent.service
     sed -i "s/\${instance_name}/${INSTANCE_NAME}/g" /usr/local/bin/vmagent/prometheus.yml
-
-    # 添加磁盘使用限制参数（防止离线时占用过多磁盘空间）
-    # 在 ExecStart 行末尾添加参数
-    if ! grep -q "remoteWrite.maxDiskUsagePerURL" /etc/systemd/system/vmagent.service; then
-        sed -i "/ExecStart=/ s/$/ -remoteWrite.maxDiskUsagePerURL=${CACHE_SIZE}/" /etc/systemd/system/vmagent.service
-        echo "✓ 已添加磁盘使用限制: ${CACHE_SIZE} per URL"
-    fi
 
     chmod 644 /etc/systemd/system/vmagent.service
 
