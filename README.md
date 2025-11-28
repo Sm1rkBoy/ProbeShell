@@ -83,8 +83,8 @@ bash agent.sh --install \
 
 **数据流向**：
 ```
-node_exporter (127.0.0.1:9100) ─┐
-                                 ├─→ vmagent ──→ VictoriaMetrics
+node_exporter (127.0.0.1:9100)     ─┐
+                                    ├─→ vmagent ──→ VictoriaMetrics
 blackbox_exporter (127.0.0.1:9115) ─┘
 
 promtail ──────────────────────────→ Loki
