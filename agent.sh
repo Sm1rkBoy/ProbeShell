@@ -10,6 +10,7 @@ VM_USERNAME=""
 VM_PASSWORD=""
 DELETE_LOGS="n"
 BLACKBOX_TARGETS=""
+CACHE_SIZE="500M"  # vmagent 默认缓存大小
 
 # 可用组件列表
 AVAILABLE_COMPONENTS=("blackbox" "node_exporter" "vmagent" "promtail")
@@ -54,6 +55,10 @@ while [[ $# -gt 0 ]]; do
             BLACKBOX_TARGETS="$2"
             shift 2
             ;;
+        --cache-size)
+            CACHE_SIZE="$2"
+            shift 2
+            ;;
         --delete-logs)
             DELETE_LOGS="y"
             shift
@@ -73,14 +78,16 @@ while [[ $# -gt 0 ]]; do
             echo "  --vm-pass, --password       VictoriaMetrics密码"
             echo "  --blackbox-targets <urls>   Blackbox探测目标(逗号分隔)"
             echo "                              示例: --blackbox-targets http://google.com,https://baidu.com"
+            echo "  --cache-size <size>         vmagent离线缓存大小(默认: 500M)"
+            echo "                              示例: 1G, 500M, 2G"
             echo "  --delete-logs               卸载时删除日志(默认不删除)"
             echo ""
             echo "示例:"
             echo "  # 安装所有组件"
             echo "  $0 --install --vm https://vm.example.com --loki https://loki.example.com --name MyVPS --vm-user admin --vm-pass secret"
             echo ""
-            echo "  # 只安装 node_exporter 和 vmagent"
-            echo "  $0 --install --components node_exporter,vmagent --vm https://vm.example.com --name MyVPS --vm-user admin --vm-pass secret"
+            echo "  # 只安装 node_exporter 和 vmagent，自定义缓存大小"
+            echo "  $0 --install --components node_exporter,vmagent --vm https://vm.example.com --name MyVPS --vm-user admin --vm-pass secret --cache-size 2G"
             echo ""
             echo "  # 安装blackbox并指定探测目标"
             echo "  $0 --install --components blackbox --blackbox-targets http://google.com,https://baidu.com"
@@ -185,6 +192,44 @@ fi
 if [ ${#SELECTED_COMPONENTS[@]} -gt 0 ]; then
     validate_components
 fi
+
+# 检查组件依赖关系
+check_component_dependencies() {
+    local has_error=false
+
+    # 如果是安装模式，检查依赖
+    if $INSTALL; then
+        # 检查 node_exporter 依赖
+        if is_component_selected "node_exporter" && ! is_component_selected "vmagent"; then
+            echo "⚠️  警告: node_exporter 依赖 vmagent 来采集和传输数据"
+            echo "   建议同时安装 vmagent 组件"
+            read -p "是否继续安装？(y/n): " continue_install
+            if [[ ! "$continue_install" =~ ^[Yy]$ ]]; then
+                echo "安装已取消"
+                exit 0
+            fi
+        fi
+
+        # 检查 blackbox 依赖
+        if is_component_selected "blackbox" && ! is_component_selected "vmagent"; then
+            echo "⚠️  警告: blackbox_exporter 依赖 vmagent 来采集和传输探测数据"
+            echo "   建议同时安装 vmagent 组件"
+            read -p "是否继续安装？(y/n): " continue_install
+            if [[ ! "$continue_install" =~ ^[Yy]$ ]]; then
+                echo "安装已取消"
+                exit 0
+            fi
+        fi
+
+        # 检查 vmagent 是否有配置
+        if is_component_selected "vmagent"; then
+            if [ -z "$MAIN_DOMAIN" ] && [ -z "$1" ]; then
+                # 如果是交互式模式，稍后会提示输入，这里不检查
+                :
+            fi
+        fi
+    fi
+}
 
 # 获取系统架构
 get_architecture() {
@@ -339,6 +384,16 @@ install_vmagent() {
         echo
     fi
 
+    # 询问缓存大小（仅在命令行未指定时）
+    if [ "$CACHE_SIZE" == "500M" ]; then
+        echo ""
+        echo "vmagent 离线缓存设置（连接不上服务器时本地缓存数据）"
+        read -p "请输入缓存大小 (默认: 500M, 示例: 1G, 2G): " user_cache_size
+        if [ -n "$user_cache_size" ]; then
+            CACHE_SIZE="$user_cache_size"
+        fi
+    fi
+
     # 验证参数
     if [[ -z "$MAIN_DOMAIN" || -z "$VM_USERNAME" || -z "$VM_PASSWORD" || -z "$INSTANCE_NAME" ]]; then
         echo "错误：VictoriaMetrics 相关参数不能为空！"
@@ -359,6 +414,13 @@ install_vmagent() {
     sed -i "s|-remoteWrite.url=.*|-remoteWrite.url=${remote_write_url}|g" /etc/systemd/system/vmagent.service
     sed -i -e "s/-remoteWrite.basicAuth.username=VM_USERNAME/-remoteWrite.basicAuth.username=${VM_USERNAME}/g" -e "s/-remoteWrite.basicAuth.password=VM_PASSWORD/-remoteWrite.basicAuth.password=${VM_PASSWORD}/g" /etc/systemd/system/vmagent.service
     sed -i "s/\${instance_name}/${INSTANCE_NAME}/g" /usr/local/bin/vmagent/prometheus.yml
+
+    # 添加磁盘使用限制参数（防止离线时占用过多磁盘空间）
+    # 在 ExecStart 行末尾添加参数
+    if ! grep -q "remoteWrite.maxDiskUsagePerURL" /etc/systemd/system/vmagent.service; then
+        sed -i "/ExecStart=/ s/$/ -remoteWrite.maxDiskUsagePerURL=${CACHE_SIZE}/" /etc/systemd/system/vmagent.service
+        echo "✓ 已添加磁盘使用限制: ${CACHE_SIZE} per URL"
+    fi
 
     chmod 644 /etc/systemd/system/vmagent.service
 
@@ -564,6 +626,7 @@ uninstall_components() {
 
 # 执行操作
 if $INSTALL; then
+    check_component_dependencies
     install_components
 elif $UNINSTALL; then
     uninstall_components
