@@ -2,7 +2,7 @@
 
 #==============================================================================
 # ProbeShell 监控组件管理脚本
-# 支持组件: blackbox_exporter, node_exporter, vmagent, promtail
+# 支持组件: blackbox_exporter, node_exporter, vector
 #==============================================================================
 
 set -euo pipefail  # 严格模式：遇到错误立即退出
@@ -12,35 +12,31 @@ set -euo pipefail  # 严格模式：遇到错误立即退出
 #==============================================================================
 
 # 版本配置
-readonly BLACKBOX_VERSION="0.27.0"
-readonly NODE_VERSION="1.9.1"
-readonly VMAGENT_VERSION="1.128.0"
-readonly PROMTAIL_VERSION="3.5.7"
+readonly BLACKBOX_VERSION="0.28.0"
+readonly NODE_VERSION="1.11.1"
+readonly VECTOR_VERSION="0.56.0"
 
 # 组件配置
-readonly AVAILABLE_COMPONENTS=("blackbox" "node_exporter" "vmagent" "promtail")
+readonly AVAILABLE_COMPONENTS=("blackbox" "node_exporter" "vector")
 declare -a SELECTED_COMPONENTS=()
 
 # 安装路径
 readonly BLACKBOX_PATH="/usr/local/bin/blackbox"
 readonly NODE_PATH="/usr/local/bin/node"
-readonly VMAGENT_PATH="/usr/local/bin/vmagent"
-readonly PROMTAIL_PATH="/usr/local/bin/promtail"
+readonly VECTOR_PATH="/usr/local/bin/vector"
 
 # 服务名称映射
 declare -A SERVICE_MAP=(
     ["blackbox"]="blackbox"
     ["node_exporter"]="node_exporter"
-    ["vmagent"]="vmagent"
-    ["promtail"]="promtail"
+    ["vector"]="vector"
 )
 
 # 安装路径映射
 declare -A INSTALL_PATH_MAP=(
     ["blackbox"]="$BLACKBOX_PATH"
     ["node_exporter"]="$NODE_PATH"
-    ["vmagent"]="$VMAGENT_PATH"
-    ["promtail"]="$PROMTAIL_PATH"
+    ["vector"]="$VECTOR_PATH"
 )
 
 # 操作模式
@@ -51,10 +47,9 @@ DRY_RUN=false
 
 # 配置参数
 MAIN_DOMAIN=""
-LOKI_DOMAIN=""
 INSTANCE_NAME=""
-VM_USERNAME=""
-VM_PASSWORD=""
+METRICS_BEARER_TOKEN=""
+LOGS_BEARER_TOKEN=""
 DELETE_LOGS="n"
 BLACKBOX_TARGETS=""
 CACHE_SIZE="512MiB"
@@ -63,6 +58,7 @@ CACHE_SIZE_SET=false  # 标记是否显式设置了 cache-size
 # 系统信息
 ARCH=""
 ARCH_SUFFIX=""
+VECTOR_ARCH_SUFFIX=""
 
 # 临时文件列表（用于清理）
 declare -a TEMP_FILES=()
@@ -181,8 +177,7 @@ print_banner() {
     echo -e "${DIM}  版本信息:${NC}"
     echo -e "  ${CYAN}•${NC} Blackbox Exporter: ${GREEN}v${BLACKBOX_VERSION}${NC}"
     echo -e "  ${CYAN}•${NC} Node Exporter:     ${GREEN}v${NODE_VERSION}${NC}"
-    echo -e "  ${CYAN}•${NC} VictoriaMetrics:   ${GREEN}v${VMAGENT_VERSION}${NC}"
-    echo -e "  ${CYAN}•${NC} Promtail:          ${GREEN}v${PROMTAIL_VERSION}${NC}"
+    echo -e "  ${CYAN}•${NC} Vector:           ${GREEN}v${VECTOR_VERSION}${NC}"
     echo ""
     print_separator
     echo ""
@@ -239,9 +234,11 @@ detect_architecture() {
     case "$ARCH" in
         x86_64)
             ARCH_SUFFIX="linux-amd64"
+            VECTOR_ARCH_SUFFIX="x86_64-unknown-linux-musl"
             ;;
         aarch64)
             ARCH_SUFFIX="linux-arm64"
+            VECTOR_ARCH_SUFFIX="aarch64-unknown-linux-musl"
             ;;
         *)
             log_error "不支持的架构: $ARCH"
@@ -257,7 +254,7 @@ check_system_dependencies() {
     log_info "检查系统依赖..."
 
     local missing_deps=()
-    local required_commands=("wget" "curl" "tar" "systemctl" "unzip")
+    local required_commands=("wget" "curl" "tar" "systemctl")
 
     for cmd in "${required_commands[@]}"; do
         if ! command_exists "$cmd"; then
@@ -290,7 +287,7 @@ install_system_dependencies() {
     }
 
     log_info "安装依赖包..."
-    apt install -y unzip ntpsec-ntpdate wget curl || {
+    apt install -y ntpsec-ntpdate wget curl || {
         log_error "依赖包安装失败"
         return 1
     }
@@ -354,8 +351,7 @@ show_component_status() {
     declare -A COMPONENT_NAMES=(
         ["blackbox"]="Blackbox Exporter"
         ["node_exporter"]="Node Exporter"
-        ["vmagent"]="VictoriaMetrics Agent"
-        ["promtail"]="Promtail"
+        ["vector"]="Vector"
     )
 
     for component in "${AVAILABLE_COMPONENTS[@]}"; do
@@ -467,9 +463,8 @@ select_components_interactive() {
     echo ""
     echo -e "  ${BRIGHT_CYAN}1)${NC} ${CYAN}blackbox_exporter${NC}  ${DIM}- HTTP/TCP 探测${NC}"
     echo -e "  ${BRIGHT_CYAN}2)${NC} ${CYAN}node_exporter${NC}      ${DIM}- 系统监控${NC}"
-    echo -e "  ${BRIGHT_CYAN}3)${NC} ${CYAN}vmagent${NC}            ${DIM}- 指标收集代理${NC}"
-    echo -e "  ${BRIGHT_CYAN}4)${NC} ${CYAN}promtail${NC}           ${DIM}- 日志收集${NC}"
-    echo -e "  ${BRIGHT_GREEN}5)${NC} ${GREEN}全部${mode_action}${NC}"
+    echo -e "  ${BRIGHT_CYAN}3)${NC} ${CYAN}vector${NC}             ${DIM}- 指标和日志收集代理${NC}"
+    echo -e "  ${BRIGHT_GREEN}4)${NC} ${GREEN}全部${mode_action}${NC}"
     echo ""
     print_separator
     echo ""
@@ -483,9 +478,8 @@ select_components_interactive() {
         case $choice in
             1) SELECTED_COMPONENTS+=("blackbox") ;;
             2) SELECTED_COMPONENTS+=("node_exporter") ;;
-            3) SELECTED_COMPONENTS+=("vmagent") ;;
-            4) SELECTED_COMPONENTS+=("promtail") ;;
-            5) SELECTED_COMPONENTS=("${AVAILABLE_COMPONENTS[@]}"); break ;;
+            3) SELECTED_COMPONENTS+=("vector") ;;
+            4) SELECTED_COMPONENTS=("${AVAILABLE_COMPONENTS[@]}"); break ;;
             *)
                 log_error "无效选项: $choice"
                 exit 1
@@ -507,24 +501,24 @@ select_components_interactive() {
 # 配置验证
 #==============================================================================
 
-# 验证 vmagent 配置
-validate_vmagent_config() {
+# 验证 Vector 配置
+validate_vector_config() {
     local errors=()
 
     if [ -z "$MAIN_DOMAIN" ]; then
-        errors+=("VictoriaMetrics 地址不能为空")
+        errors+=("vmauth 地址不能为空")
     fi
 
     if [ -z "$INSTANCE_NAME" ]; then
         errors+=("实例名称不能为空")
     fi
 
-    if [ -z "$VM_USERNAME" ]; then
-        errors+=("用户名不能为空")
+    if [ -z "$METRICS_BEARER_TOKEN" ]; then
+        errors+=("VictoriaMetrics bearer token 不能为空")
     fi
 
-    if [ -z "$VM_PASSWORD" ]; then
-        errors+=("密码不能为空")
+    if [ -z "$LOGS_BEARER_TOKEN" ]; then
+        errors+=("VictoriaLogs bearer token 不能为空")
     fi
 
     # 验证缓存大小格式
@@ -533,30 +527,7 @@ validate_vmagent_config() {
     fi
 
     if [ ${#errors[@]} -gt 0 ]; then
-        log_error "vmagent 配置验证失败:"
-        for error in "${errors[@]}"; do
-            log_error "  - $error"
-        done
-        return 1
-    fi
-
-    return 0
-}
-
-# 验证 promtail 配置
-validate_promtail_config() {
-    local errors=()
-
-    if [ -z "$LOKI_DOMAIN" ]; then
-        errors+=("Loki 地址不能为空")
-    fi
-
-    if [ -z "$INSTANCE_NAME" ]; then
-        errors+=("实例名称不能为空")
-    fi
-
-    if [ ${#errors[@]} -gt 0 ]; then
-        log_error "promtail 配置验证失败:"
+        log_error "Vector 配置验证失败:"
         for error in "${errors[@]}"; do
             log_error "  - $error"
         done
@@ -736,14 +707,56 @@ install_node_exporter() {
 }
 
 #==============================================================================
-# VAgent 安装
+# Vector 安装
 #==============================================================================
+
+urlencode() {
+    local string="${1}"
+    local length="${#string}"
+    local encoded=""
+    local pos char hex
+
+    for ((pos = 0; pos < length; pos++)); do
+        char="${string:$pos:1}"
+        case "$char" in
+            [a-zA-Z0-9.~_-])
+                encoded+="$char"
+                ;;
+            *)
+                printf -v hex '%%%02X' "'$char"
+                encoded+="$hex"
+                ;;
+        esac
+    done
+
+    echo "$encoded"
+}
+
+cache_size_to_bytes() {
+    local size="$1"
+    local number unit multiplier
+
+    number="${size//[!0-9]/}"
+    unit="${size//$number/}"
+
+    case "$unit" in
+        KB) multiplier=1000 ;;
+        MB) multiplier=1000000 ;;
+        GB) multiplier=1000000000 ;;
+        TB) multiplier=1000000000000 ;;
+        KiB) multiplier=1024 ;;
+        MiB) multiplier=1048576 ;;
+        GiB) multiplier=1073741824 ;;
+        TiB) multiplier=1099511627776 ;;
+        *) return 1 ;;
+    esac
+
+    echo $((number * multiplier))
+}
 
 # 生成 blackbox 探测目标配置
 generate_blackbox_targets() {
-    local endpoint_file="${VMAGENT_PATH}/endpoint.yml"
-
-    mkdir -p "$VMAGENT_PATH"
+    local endpoint_file="${VECTOR_PATH}/endpoint.yml"
 
     if [ -n "$BLACKBOX_TARGETS" ]; then
         log_info "配置自定义 blackbox 探测目标..."
@@ -753,24 +766,21 @@ generate_blackbox_targets() {
             return 0
         fi
 
-        # 生成配置文件头部
+        mkdir -p "$VECTOR_PATH"
+
         cat > "$endpoint_file" << 'EOF'
 # Blackbox Exporter Targets - Auto Generated
 # Format: Prometheus file_sd_configs
 
 EOF
 
-        # 将逗号分隔的目标转换为数组
         IFS=',' read -ra TARGET_ARRAY <<< "$BLACKBOX_TARGETS"
 
         for target in "${TARGET_ARRAY[@]}"; do
-            # 移除前后空格
             target=$(echo "$target" | xargs)
+            local label
+            label=$(echo "$target" | sed -E 's|https?://||' | sed 's|/.*||' | sed 's|:.*||')
 
-            # 提取域名作为标签
-            local label=$(echo "$target" | sed -E 's|https?://||' | sed 's|/.*||' | sed 's|:.*||')
-
-            # 生成配置条目
             cat >> "$endpoint_file" << EOF
 - targets:
     - "$target"
@@ -783,10 +793,16 @@ EOF
         log_success "已生成探测目标配置: $endpoint_file"
         log_info "配置了 ${#TARGET_ARRAY[@]} 个探测目标"
     else
-        # 下载默认配置
+        if $DRY_RUN; then
+            log_info "[DRY RUN] 跳过下载默认探测目标配置"
+            return 0
+        fi
+
+        mkdir -p "$VECTOR_PATH"
+
         if [ ! -f "$endpoint_file" ] || confirm "探测目标配置已存在，是否覆盖?"; then
             safe_download \
-                "https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/vmagent/endpoint.yml" \
+                "https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/vector/endpoint.yml" \
                 "$endpoint_file" \
                 "默认探测目标配置" || return 1
         fi
@@ -795,192 +811,329 @@ EOF
     return 0
 }
 
-# 获取 vmagent 配置
-get_vmagent_config() {
+get_vector_config() {
     if [ -z "$MAIN_DOMAIN" ]; then
-        echo ""
-        log_info "VictoriaMetrics写入地址一般是<ip>:8428,如果有反代输入域名即可"
-        read -p "请输入 VictoriaMetrics 写入地址: " MAIN_DOMAIN
+        read -p "请输入 vmauth 地址: " MAIN_DOMAIN
     fi
 
     if [ -z "$INSTANCE_NAME" ]; then
         read -p "请输入VPS名称(如: GreenCloud.JP.6666): " INSTANCE_NAME
     fi
 
-    if [ -z "$VM_USERNAME" ]; then
-        read -p "请输入 VictoriaMetrics 用户名: " VM_USERNAME
+    if [ -z "$METRICS_BEARER_TOKEN" ]; then
+        read -sp "请输入 VictoriaMetrics bearer token: " METRICS_BEARER_TOKEN
+        echo ""
     fi
 
-    if [ -z "$VM_PASSWORD" ]; then
-        read -sp "请输入 VictoriaMetrics 密码: " VM_PASSWORD
+    if [ -z "$LOGS_BEARER_TOKEN" ]; then
+        read -sp "请输入 VictoriaLogs bearer token: " LOGS_BEARER_TOKEN
         echo ""
     fi
 
     if [ "$CACHE_SIZE_SET" = false ]; then
         echo ""
-        log_info "vmagent 离线缓存设置（连接不上服务器时本地缓存数据）"
+        log_info "Vector 离线缓存设置（每个 sink 的本地磁盘缓存）"
         read -p "请输入缓存大小 (默认: 512MiB, 示例: 1GB, 2GB): " user_cache_size
         if [ -n "$user_cache_size" ]; then
             CACHE_SIZE="$user_cache_size"
         fi
     fi
 
-    # 验证配置
-    validate_vmagent_config || exit 1
+    validate_vector_config || exit 1
 }
 
-install_vmagent() {
-    print_header "安装 vmagent"
+generate_vector_config() {
+    local config_file="${VECTOR_PATH}/vector.yaml"
+    local endpoint_file="${VECTOR_PATH}/endpoint.yml"
+    local metrics_url="${MAIN_DOMAIN%/}/api/v1/write"
+    local logs_url="${MAIN_DOMAIN%/}/insert/jsonline?_stream_fields=instance,job,file&_msg_field=message&_time_field=timestamp"
+    local buffer_bytes
+    local blackbox_transform_inputs=""
 
-    if is_component_installed "vmagent" && ! $DRY_RUN; then
-        log_warn "vmagent 已安装"
+    buffer_bytes=$(cache_size_to_bytes "$CACHE_SIZE") || return 1
+
+    if $DRY_RUN; then
+        log_info "[DRY RUN] 跳过生成 Vector 配置"
+        return 0
+    fi
+
+    mkdir -p "$VECTOR_PATH" /var/lib/vector
+
+    cat > "$config_file" << EOF
+data_dir: /var/lib/vector
+
+sources:
+  node_exporter:
+    type: prometheus_scrape
+    endpoints:
+      - http://127.0.0.1:9100/metrics
+    scrape_interval_secs: 15
+    scrape_timeout_secs: 5
+EOF
+
+    local line trimmed target="" label="" encoded_target index=0
+    while IFS= read -r line; do
+        trimmed=$(echo "$line" | xargs)
+
+        if [[ "$trimmed" == "- "* ]] && [[ "$trimmed" != "- targets:" ]]; then
+            target="${trimmed#- }"
+            continue
+        fi
+
+        if [[ "$trimmed" == endpoint:* ]]; then
+            label="${trimmed#endpoint: }"
+
+            if [ -n "$target" ]; then
+                encoded_target=$(urlencode "$target")
+                cat >> "$config_file" << EOF
+
+  blackbox_${index}:
+    type: prometheus_scrape
+    endpoints:
+      - http://127.0.0.1:9115/probe?module=tcping&target=${encoded_target}
+    scrape_interval_secs: 15
+    scrape_timeout_secs: 5
+EOF
+
+                blackbox_transform_inputs+="      - blackbox_${index}_labels"$'\n'
+                index=$((index + 1))
+            fi
+
+            target=""
+            label=""
+        fi
+    done < "$endpoint_file"
+
+    if [ "$index" -eq 0 ]; then
+        log_warn "未从 $endpoint_file 解析到 blackbox 探测目标，Vector 将只采集 node_exporter 和日志"
+    fi
+
+    cat >> "$config_file" << EOF
+
+  system_logs:
+    type: file
+    include:
+      - /var/log/syslog
+      - /var/log/auth.log
+      - /var/log/kern.log
+      - /var/log/cron.log
+      - /var/log/user.log
+      - /var/log/fail2ban.log
+    ignore_not_found: true
+    read_from: end
+
+transforms:
+  node_labels:
+    type: remap
+    inputs:
+      - node_exporter
+    source: |-
+      .tags.instance = "${INSTANCE_NAME}"
+      .tags.job = "node"
+
+EOF
+
+    target=""
+    label=""
+    index=0
+    while IFS= read -r line; do
+        trimmed=$(echo "$line" | xargs)
+
+        if [[ "$trimmed" == "- "* ]] && [[ "$trimmed" != "- targets:" ]]; then
+            target="${trimmed#- }"
+            continue
+        fi
+
+        if [[ "$trimmed" == endpoint:* ]]; then
+            label="${trimmed#endpoint: }"
+
+            if [ -n "$target" ]; then
+                cat >> "$config_file" << EOF
+  blackbox_${index}_labels:
+    type: remap
+    inputs:
+      - blackbox_${index}
+    source: |-
+      .tags.instance = "${INSTANCE_NAME}"
+      .tags.job = "blackbox"
+      .tags.endpoint = "${label}"
+      .tags.target = "${target}"
+
+EOF
+                index=$((index + 1))
+            fi
+
+            target=""
+            label=""
+        fi
+    done < "$endpoint_file"
+
+    cat >> "$config_file" << EOF
+  log_labels:
+    type: remap
+    inputs:
+      - system_logs
+    source: |-
+      .instance = "${INSTANCE_NAME}"
+      .timestamp = now()
+      if .file == "/var/log/syslog" {
+        .job = "syslog"
+      } else if .file == "/var/log/auth.log" {
+        .job = "auth"
+      } else if .file == "/var/log/kern.log" {
+        .job = "kern"
+      } else if .file == "/var/log/cron.log" {
+        .job = "cron"
+      } else if .file == "/var/log/user.log" {
+        .job = "user"
+      } else if .file == "/var/log/fail2ban.log" {
+        .job = "fail2ban"
+      } else {
+        .job = "system"
+      }
+
+sinks:
+  metrics_remote_write:
+    type: prometheus_remote_write
+    inputs:
+      - node_labels
+${blackbox_transform_inputs}
+    endpoint: ${metrics_url}
+    auth:
+      strategy: bearer
+      token: "${METRICS_BEARER_TOKEN}"
+    healthcheck:
+      enabled: false
+    buffer:
+      type: disk
+      max_size: ${buffer_bytes}
+      when_full: block
+
+  victorialogs:
+    type: http
+    inputs:
+      - log_labels
+    uri: "${logs_url}"
+    method: post
+    auth:
+      strategy: bearer
+      token: "${LOGS_BEARER_TOKEN}"
+    encoding:
+      codec: json
+    framing:
+      method: newline_delimited
+    compression: gzip
+    healthcheck:
+      enabled: false
+    buffer:
+      type: disk
+      max_size: ${buffer_bytes}
+      when_full: block
+EOF
+
+    log_success "已生成 Vector 配置: $config_file"
+}
+
+uninstall_legacy_component() {
+    local component="$1"
+    local service="$2"
+    local install_path="$3"
+
+    if [ ! -d "$install_path" ] && [ ! -f "/etc/systemd/system/${service}.service" ]; then
+        return 0
+    fi
+
+    log_info "清理旧组件 $component..."
+
+    if $DRY_RUN; then
+        log_info "[DRY RUN] 跳过清理旧组件: $component"
+        return 0
+    fi
+
+    if systemctl is-active --quiet "$service" 2>/dev/null; then
+        systemctl stop "$service" || log_warn "停止 $service 失败"
+    fi
+
+    if systemctl is-enabled --quiet "$service" 2>/dev/null; then
+        systemctl disable "$service" || log_warn "禁用 $service 失败"
+    fi
+
+    rm -f "/etc/systemd/system/${service}.service" || log_warn "删除服务文件失败: ${service}.service"
+    rm -rf "$install_path" || log_warn "删除安装目录失败: $install_path"
+
+    log_success "旧组件 $component 已清理"
+}
+
+install_vector() {
+    print_header "安装 Vector"
+
+    if is_component_installed "vector" && ! $DRY_RUN; then
+        log_warn "Vector 已安装"
         if ! confirm "是否重新安装?"; then
             return 0
         fi
-        uninstall_component "vmagent"
+        uninstall_component "vector"
     fi
 
-    # 获取配置参数
-    get_vmagent_config
+    get_vector_config
 
-    local archive="vmutils-${ARCH_SUFFIX}-v${VMAGENT_VERSION}.tar.gz"
-    local url="https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v${VMAGENT_VERSION}/${archive}"
+    local archive="vector-${VECTOR_VERSION}-${VECTOR_ARCH_SUFFIX}.tar.gz"
+    local url="https://packages.timber.io/vector/${VECTOR_VERSION}/${archive}"
 
-    safe_download "$url" "$archive" "vmutils" || return 1
-    extract_tarball "$archive" "vmutils" || return 1
+    safe_download "$url" "$archive" "Vector" || return 1
+    extract_tarball "$archive" "Vector" || return 1
 
     if $DRY_RUN; then
-        log_info "[DRY RUN] 跳过安装 vmagent 二进制"
+        log_info "[DRY RUN] 跳过安装 Vector 二进制"
     else
-        # 清理不需要的文件
-        rm -rf vmalert-prod vmalert-tool-prod vmauth-prod vmbackup-prod vmctl-prod vmrestore-prod 2>/dev/null || true
+        local vector_binary=""
 
-        # 创建目录并移动文件
-        mkdir -p "$VMAGENT_PATH"
-        mv vmagent-prod "${VMAGENT_PATH}/vmagent" || return 1
-        chmod +x "${VMAGENT_PATH}/vmagent"
-        chown root:root "${VMAGENT_PATH}/vmagent"
+        if [ -f "vector-${VECTOR_ARCH_SUFFIX}/bin/vector" ]; then
+            vector_binary="vector-${VECTOR_ARCH_SUFFIX}/bin/vector"
+        elif [ -f "vector-${VECTOR_VERSION}-${VECTOR_ARCH_SUFFIX}/bin/vector" ]; then
+            vector_binary="vector-${VECTOR_VERSION}-${VECTOR_ARCH_SUFFIX}/bin/vector"
+        else
+            vector_binary=$(find . -maxdepth 3 -path "*/bin/vector" -type f | head -n 1)
+        fi
+
+        if [ -z "$vector_binary" ]; then
+            log_error "未找到 Vector 二进制文件"
+            return 1
+        fi
+
+        mkdir -p "$VECTOR_PATH"
+        mv "$vector_binary" "${VECTOR_PATH}/vector" || return 1
+        chmod +x "${VECTOR_PATH}/vector"
+        chown root:root "${VECTOR_PATH}/vector"
     fi
 
-    # 拼接 remote write URL
-    local remote_write_url="${MAIN_DOMAIN}/api/v1/write"
-
-    # 下载服务文件和配置
-    safe_download \
-        "https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/service/vmagent.service" \
-        "/etc/systemd/system/vmagent.service" \
-        "vmagent 服务文件" || return 1
-
-    safe_download \
-        "https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/vmagent/prometheus.yml" \
-        "${VMAGENT_PATH}/prometheus.yml" \
-        "vmagent 配置文件" || return 1
-
-    # 生成或下载探测目标配置
     generate_blackbox_targets || return 1
+    generate_vector_config || return 1
+
+    uninstall_legacy_component "vmagent" "vmagent" "/usr/local/bin/vmagent"
+    uninstall_legacy_component "promtail" "promtail" "/usr/local/bin/promtail"
 
     if ! $DRY_RUN; then
-        # 替换服务文件中的配置
-        sed -i "s|-remoteWrite.url=.*|-remoteWrite.url=${remote_write_url}|g" /etc/systemd/system/vmagent.service
-        sed -i "s/-remoteWrite.basicAuth.username=VM_USERNAME/-remoteWrite.basicAuth.username=${VM_USERNAME}/g" /etc/systemd/system/vmagent.service
-        sed -i "s/-remoteWrite.basicAuth.password=VM_PASSWORD/-remoteWrite.basicAuth.password=${VM_PASSWORD}/g" /etc/systemd/system/vmagent.service
-        sed -i "s/-remoteWrite.maxDiskUsagePerURL=CACHE_SIZE/-remoteWrite.maxDiskUsagePerURL=${CACHE_SIZE}/g" /etc/systemd/system/vmagent.service
+        cat > /etc/systemd/system/vector.service << 'EOF'
+[Unit]
+Description=Vector
+After=network.target
 
-        # 替换配置文件中的实例名
-        sed -i "s/\${instance_name}/${INSTANCE_NAME}/g" "${VMAGENT_PATH}/prometheus.yml"
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/vector/vector --config /usr/local/bin/vector/vector.yaml
+Restart=always
+RestartSec=5
 
-        chmod 644 /etc/systemd/system/vmagent.service
-    fi
-
-    log_success "vmagent 安装完成"
-    return 0
-}
-
-#==============================================================================
-# Promtail 安装
-#==============================================================================
-
-# 获取 promtail 配置
-get_promtail_config() {
-    if [ -z "$LOKI_DOMAIN" ]; then
-        read -p "请输入 Loki 写入地址: " LOKI_DOMAIN
-    fi
-
-    if [ -z "$INSTANCE_NAME" ]; then
-        read -p "请输入VPS名称(如: GreenCloud.JP.6666): " INSTANCE_NAME
-    fi
-
-    if [ -z "$VM_USERNAME" ]; then
-        read -p "请输入认证用户名 (可选，直接回车跳过): " VM_USERNAME
-    fi
-
-    if [ -z "$VM_PASSWORD" ] && [ -n "$VM_USERNAME" ]; then
-        read -sp "请输入认证密码: " VM_PASSWORD
-        echo ""
-    fi
-
-    # 验证配置
-    validate_promtail_config || exit 1
-}
-
-install_promtail() {
-    print_header "安装 promtail"
-
-    if is_component_installed "promtail" && ! $DRY_RUN; then
-        log_warn "promtail 已安装"
-        if ! confirm "是否重新安装?"; then
-            return 0
-        fi
-        uninstall_component "promtail"
-    fi
-
-    # 获取配置参数
-    get_promtail_config
-
-    local archive="promtail-${ARCH_SUFFIX}.zip"
-    local url="https://github.com/grafana/loki/releases/download/v${PROMTAIL_VERSION}/${archive}"
-
-    safe_download "$url" "$archive" "promtail" || return 1
-
-    if $DRY_RUN; then
-        log_info "[DRY RUN] 跳过解压和安装 promtail"
+[Install]
+WantedBy=multi-user.target
+EOF
+        chmod 644 /etc/systemd/system/vector.service
     else
-        mkdir -p "$PROMTAIL_PATH"
-        unzip -o "$archive" || return 1
-        mv "promtail-${ARCH_SUFFIX}" "${PROMTAIL_PATH}/promtail" || return 1
-        chmod +x "${PROMTAIL_PATH}/promtail"
-        chown root:root "${PROMTAIL_PATH}/promtail"
-        TEMP_FILES+=("$archive")
+        log_info "[DRY RUN] 跳过生成 Vector 服务文件"
     fi
 
-    local loki_push_url="${LOKI_DOMAIN}/loki/api/v1/push"
-
-    # 下载服务文件和配置
-    safe_download \
-        "https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/service/promtail.service" \
-        "/etc/systemd/system/promtail.service" \
-        "promtail 服务文件" || return 1
-
-    safe_download \
-        "https://raw.githubusercontent.com/Sm1rkBoy/ProbeShell/main/promtail/promtail.yml" \
-        "${PROMTAIL_PATH}/promtail.yml" \
-        "promtail 配置文件" || return 1
-
-    if ! $DRY_RUN; then
-        # 替换配置
-        sed -i "s|instance: ''|instance: '${INSTANCE_NAME}'|g" "${PROMTAIL_PATH}/promtail.yml"
-        sed -i "s|url:|url: ${loki_push_url}|" "${PROMTAIL_PATH}/promtail.yml"
-
-        # 如果提供了认证信息，添加到配置
-        if [ -n "$VM_USERNAME" ] && [ -n "$VM_PASSWORD" ]; then
-            sed -i "s|username:|username: ${VM_USERNAME}|" "${PROMTAIL_PATH}/promtail.yml"
-            sed -i "s|password:|password: ${VM_PASSWORD}|" "${PROMTAIL_PATH}/promtail.yml"
-        fi
-
-        chmod 644 /etc/systemd/system/promtail.service
-    fi
-
-    log_success "promtail 安装完成"
+    log_success "Vector 安装完成"
     return 0
 }
 
@@ -1118,11 +1271,8 @@ install_components() {
             node_exporter)
                 install_node_exporter || failed_components+=("node_exporter")
                 ;;
-            vmagent)
-                install_vmagent || failed_components+=("vmagent")
-                ;;
-            promtail)
-                install_promtail || failed_components+=("promtail")
+            vector)
+                install_vector || failed_components+=("vector")
                 ;;
         esac
     done
@@ -1236,20 +1386,16 @@ parse_arguments() {
                 MAIN_DOMAIN="$2"
                 shift 2
                 ;;
-            --loki)
-                LOKI_DOMAIN="$2"
-                shift 2
-                ;;
             --name|--instance)
                 INSTANCE_NAME="$2"
                 shift 2
                 ;;
-            --vm-user|--username)
-                VM_USERNAME="$2"
+            --metrics-token)
+                METRICS_BEARER_TOKEN="$2"
                 shift 2
                 ;;
-            --vm-pass|--password)
-                VM_PASSWORD="$2"
+            --logs-token)
+                LOGS_BEARER_TOKEN="$2"
                 shift 2
                 ;;
             --blackbox-targets)
@@ -1296,19 +1442,18 @@ ProbeShell 监控组件管理脚本 (重构版)
 
 组件选项:
   --components <列表>         指定组件(逗号分隔)
-                              可选: blackbox,node_exporter,vmagent,promtail
+                              可选: blackbox,node_exporter,vector
                               示例: --components blackbox,node_exporter
 
 配置选项:
-  --victoria, --vm <地址>     VictoriaMetrics 写入地址
-  --loki <地址>               Loki 写入地址
+  --victoria, --vm <地址>     vmauth 地址
   --name, --instance <名称>   实例名称
-  --vm-user, --username       认证用户名
-  --vm-pass, --password       认证密码
+  --metrics-token <token>     VictoriaMetrics bearer token
+  --logs-token <token>        VictoriaLogs bearer token
   --blackbox-targets <列表>   Blackbox 探测目标(逗号分隔)
                               示例: --blackbox-targets http://google.com,https://baidu.com
-  --cache-size <大小>         vmagent 缓存大小(默认: 500M)
-                              示例: 1G, 500M, 2G
+  --cache-size <大小>         Vector 每个 sink 的磁盘缓存大小(默认: 512MiB)
+                              示例: 1GB, 512MiB, 2GiB
 
 其他选项:
   --delete-logs               卸载时删除日志(默认不删除)
@@ -1319,12 +1464,13 @@ ProbeShell 监控组件管理脚本 (重构版)
   ./agent.sh --status
 
   # 安装所有组件
-  ./agent.sh --install --vm https://vm.example.com --loki https://loki.example.com \
-             --name MyVPS --vm-user admin --vm-pass secret
+  ./agent.sh --install --vm https://vmauth.example.com --name MyVPS \
+             --metrics-token METRICS_TOKEN --logs-token LOGS_TOKEN
 
-  # 只安装 node_exporter 和 vmagent
-  ./agent.sh --install --components node_exporter,vmagent \
-             --vm https://vm.example.com --name MyVPS --vm-user admin --vm-pass secret
+  # 只安装 node_exporter、blackbox 和 Vector
+  ./agent.sh --install --components node_exporter,blackbox,vector \
+             --vm https://vmauth.example.com --name MyVPS \
+             --metrics-token METRICS_TOKEN --logs-token LOGS_TOKEN
 
   # 卸载所有组件并删除日志
   ./agent.sh --uninstall --delete-logs
